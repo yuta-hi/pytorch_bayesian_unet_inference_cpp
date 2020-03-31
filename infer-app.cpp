@@ -28,7 +28,7 @@ int main(int argc, const char* argv[]) {
 
 	try {
 		auto model = torch::jit::load(path);
-		assert(module != nullptr);
+		assert(model != nullptr);
 		model.eval();
 		model.to(device);
 
@@ -61,6 +61,6 @@ int main(int argc, const char* argv[]) {
 		std::cerr << e.msg() << std::endl;
 		return -1;
 	}
-		
+
 	return 0;
 }
