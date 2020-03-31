@@ -1,10 +1,67 @@
 #include <torch/torch.h>
 #include <torch/script.h>
 #include <iostream>
+#include <memory>
+#include <itkImage.h>
+#include <itkImageFileReader.h>
 
 
 void print_tensor(const at::Tensor &x) {
 	std::cout << x << std::endl;
+}
+
+
+namespace cvt {
+
+	template<typename T>
+	at::ScalarType scalar_type() {
+		return at::typeMetaToScalarType(caffe2::TypeMeta::Make<T>());
+	}
+
+	template<typename T, unsigned int N>
+	std::vector<T> itk_to_vector(const itk::Image<T, N> &src) {
+		const auto numel = src.GetLargestPossibleRegion().GetNumberOfPixels();
+		std::vector<T> dst(numel);
+		std::memcpy(&dst[0], src.GetBufferPointer(), numel * sizeof(T));
+		return dst;
+	}
+
+	template<typename T, unsigned int N>
+	torch::Tensor itk_to_tensor(const itk::Image<T, N> &src) {
+		const auto numel = src.GetLargestPossibleRegion().GetNumberOfPixels();
+		const auto size  = src.GetLargestPossibleRegion().GetSize();
+
+		std::vector<int64_t> size_int64_t;
+		for (const auto &s : size) size_int64_t.push_back(static_cast<int64_t>(s));
+		const auto dtype = cvt::scalar_type<T>();
+
+		torch::Tensor dst = torch::empty(size_int64_t, dtype);
+		std::memcpy(dst.data_ptr(), src.GetBufferPointer(), numel * sizeof(T));
+		return dst;
+	}
+}
+
+
+template<typename PixelType, unsigned int N>
+torch::Tensor read_image(const std::string path){
+
+	using ImageType = itk::Image<PixelType, N>;
+	using ReaderType = itk::ImageFileReader<ImageType>;
+
+	ImageType::ConstPointer image;
+	ReaderType::Pointer reader = ReaderType::New();
+	reader->SetFileName(path);
+	try {
+		reader->Update();
+		image = reader->GetOutput();
+	}
+	catch (itk::ExceptionObject &err)
+	{
+		std::cerr << err << std::endl;
+		exit(-1);
+	}
+
+	return cvt::itk_to_tensor<PixelType, N>(*image);
 }
 
 
@@ -28,7 +85,6 @@ int main(int argc, const char* argv[]) {
 
 	try {
 		auto model = torch::jit::load(path);
-		assert(model != nullptr);
 		model.eval();
 		model.to(device);
 
